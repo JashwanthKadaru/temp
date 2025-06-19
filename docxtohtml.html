@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOCX to HTML Converter & Previewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .sidebar {
+            width: 350px;
+            background: #ffffff;
+            padding: 25px;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .sidebar h1 {
+            font-size: 24px;
+            color: #333;
+            margin: 0;
+            text-align: center;
+        }
+        .upload-box {
+            border: 2px dashed #d0d0d0;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            background-color: #f9f9f9;
+        }
+        .upload-box label {
+            font-weight: 500;
+            color: #555;
+            cursor: pointer;
+        }
+        .upload-box input[type="file"] {
+            display: none;
+        }
+        #status {
+            color: #666;
+            text-align: center;
+            font-size: 14px;
+        }
+        .preview-pane {
+            flex-grow: 1;
+            padding: 20px;
+            background-color: #e9ebee;
+        }
+        #preview-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h1>DOCX Converter</h1>
+        <div class="upload-box">
+            <label for="docx-file-input">
+                <strong>Click to Upload .docx File</strong>
+                <p style="font-size: 12px; color: #777; margin-top: 5px;">Your document will be processed in the browser.</p>
+            </label>
+            <input type="file" id="docx-file-input" accept=".docx">
+        </div>
+        <div id="status">Waiting for file...</div>
+    </div>
+
+    <div class="preview-pane">
+        <iframe id="preview-frame" title="Styled HTML Output"></iframe>
+    </div>
+    
+    <script>
+        const docxInput = document.getElementById('docx-file-input');
+        const statusDiv = document.getElementById('status');
+        const previewFrame = document.getElementById('preview-frame');
+
+        docxInput.addEventListener('change', handleFileSelect, false);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            statusDiv.textContent = 'Processing...';
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                mammoth.convertToHtml({ arrayBuffer: e.target.result })
+                    .then(result => {
+                        const finalHtml = generateStyledHtml(result.value);
+                        console.log(finalHtml)
+                        previewFrame.srcdoc = finalHtml;
+                        statusDiv.textContent = 'Conversion Successful!';
+                    })
+                    .catch(handleError);
+            };
+
+            reader.readAsArrayBuffer(file);
+        }
+
+        function handleError(err) {
+            console.error('Conversion Error:', err);
+            statusDiv.textContent = 'Error during conversion. See console.';
+        }
+        
+        /**
+         * Takes raw Mammoth HTML and returns a full, styled HTML document string.
+         */
+        function generateStyledHtml(rawHtml) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(rawHtml, 'text/html');
+            const body = doc.body;
+
+            // State for section numbering
+            const counters = { h1: 0, h2: 0, h3: 0 };
+            const styledBody = document.createElement('body');
+
+            // Pre-process to fix heading structures from Mammoth
+            // This is a common issue where headings are nested in lists.
+            body.querySelectorAll('ul > li').forEach(li => {
+                if (li.children.length === 1 && li.firstElementChild?.tagName === 'OL') {
+                    const headingLi = li.firstElementChild.firstElementChild;
+                    if (headingLi) {
+                        const h2 = doc.createElement('h2');
+                        h2.innerHTML = headingLi.innerHTML;
+                        li.parentNode.replaceChild(h2, li);
+                    }
+                }
+            });
+
+
+            // Process all direct children of the original body
+            Array.from(body.children).forEach(el => {
+                let elementToStyle = el;
+                
+                // Add hard-coded section numbers
+                if (elementToStyle.tagName === 'H1') {
+                    counters.h1++;
+                    counters.h2 = 0;
+                    counters.h3 = 0;
+                    elementToStyle.innerHTML = `${counters.h1}. ${elementToStyle.innerHTML}`;
+                } else if (elementToStyle.tagName === 'H2') {
+                    counters.h2++;
+                    counters.h3 = 0;
+                    elementToStyle.innerHTML = `${counters.h1}.${counters.h2} ${elementToStyle.innerHTML}`;
+                } else if (elementToStyle.tagName === 'H3') {
+                     counters.h3++;
+                     elementToStyle.innerHTML = `${counters.h1}.${counters.h2}.${counters.h3} ${elementToStyle.innerHTML}`;
+                }
+
+                styledBody.appendChild(elementToStyle);
+            });
+
+            // The full HTML string to be displayed in the iframe
+            return `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>
+                        body { font-family: 'Calibri', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; line-height: 1.15; margin: 2cm 2.54cm; }
+                        p { margin: 0 0 8pt 0; }
+                        h1 { font-family: 'Calibri Light', sans-serif; font-size: 16pt; color: #2F5496; font-weight: 300; border-bottom: 1px solid #BFBFBF; padding-bottom: 6px; margin-top: 24pt; margin-bottom: 12pt; }
+                        h2 { font-family: 'Calibri', sans-serif; font-size: 13pt; color: #365F91; font-weight: bold; margin-top: 18pt; margin-bottom: 6pt; }
+                        h3 { font-family: 'Calibri', sans-serif; font-size: 12pt; color: #4F81BD; font-weight: bold; margin-top: 14pt; margin-bottom: 4pt; }
+                        ul, ol { padding-left: 36pt; margin: 0 0 8pt; }
+                        em { color: #0070C0; font-style: italic; }
+                        table { width: 100%; border-collapse: collapse; border: 1px solid #BFBFBF; margin-top: 1rem; margin-bottom: 1.5rem; }
+                        td, th { border: 1px solid #BFBFBF; padding: 5px 8px; vertical-align: top; }
+                        td p { margin: 0; }
+                        tr.table-title-row td { background-color: #4472C4; color: white; text-align: center; font-weight: bold; }
+                        tr.table-header-row td { background-color: #D9E1F2; font-weight: bold; }
+                    </style>
+                </head>
+                <body>
+                    ${applyDynamicStyles(styledBody.innerHTML)}
+                </body>
+                </html>
+            `;
+        }
+
+        /**
+         * Post-processes the generated HTML to apply styles that depend on content.
+         */
+        function applyDynamicStyles(htmlString) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, 'text/html');
+            
+            doc.querySelectorAll('table').forEach(table => {
+                table.querySelectorAll('tr').forEach((row, index) => {
+                    const firstCell = row.cells[0];
+                    if (!firstCell) return;
+                    
+                    // Title rows
+                    if (firstCell.getAttribute('colspan')) {
+                        row.classList.add('table-title-row');
+                        return;
+                    }
+                    
+                    // Header rows (heuristic: first row after title, or first row overall if no title)
+                    const isLikelyHeader = (index === 1 && row.previousElementSibling.classList.contains('table-title-row')) || (index === 0);
+                    if (isLikelyHeader && row.querySelector('strong')) {
+                         row.classList.add('table-header-row');
+                    }
+                });
+            });
+
+            return doc.body.innerHTML;
+        }
+
+    </script>
+</body>
+</html>
